@@ -97,6 +97,7 @@ def _pending(conn: sqlite3.Connection, workspace: str) -> dict | None:
 
     unread: list[dict] = []
     previews: list[str] = []
+    blocking = 0          # things a PEER is waiting on; only these hold a turn open
     for ch in channels:
         cursor = conn.execute(
             "SELECT last_seq FROM cursors WHERE channel_id = ? AND party_id = ?",
@@ -113,6 +114,9 @@ def _pending(conn: sqlite3.Connection, workspace: str) -> dict | None:
         if not rows:
             continue
         unread.append({"channel": ch["name"], "count": len(rows)})
+        # An 'event' row (acked by X, archived) is news, not a request. Reporting
+        # it is useful; forcing the peer to spend a turn reading it is not.
+        blocking += sum(1 for r in rows if r["kind"] != "event")
         for r in rows[-MAX_PREVIEWS:]:
             body = " ".join((r["body"] or "").split())
             if len(body) > PREVIEW_CHARS:
@@ -137,11 +141,17 @@ def _pending(conn: sqlite3.Connection, workspace: str) -> dict | None:
     for it in items:
         ident = f"[{it['slug'] or '#' + str(it['seq'])}] \"{it['title']}\""
         if it["acked_at"] is None and it["status"] in ("open", "ack") and it["author_id"] != pid:
+            # The only item state where a peer is genuinely stuck on this session.
             needs.append(f"  {ident} from {it['author']} — needs your ack")
+            blocking += 1
         elif int(it["author_id"]) == pid and it["status"] == "ack":
-            needs.append(f"  {ident} — answered; needs your resolve if you are satisfied")
+            # Answered but not resolved. The raiser decides when to close it, and
+            # may be deliberately holding it open until the peer ships a fix —
+            # so this is reported, never blocking, or it would nag forever with
+            # no honest way out.
+            needs.append(f"  {ident} — answered; resolve when you are satisfied (no rush)")
         elif it["status"] == "done" and it["prune_ok_at"] is None:
-            needs.append(f"  {ident} — resolved; needs your prune-ok")
+            needs.append(f"  {ident} — resolved; needs your prune-ok when you have consumed it")
 
     if not unread and not needs:
         return None
@@ -151,6 +161,7 @@ def _pending(conn: sqlite3.Connection, workspace: str) -> dict | None:
         "previews": previews,
         "needs": needs,
         "total_unread": sum(u["count"] for u in unread),
+        "blocking": blocking,
     }
 
 
@@ -229,6 +240,11 @@ def main() -> int:
         return 0
 
     if event == "Stop":
+        # Hold the turn open only when a peer is actually waiting on this
+        # session. Housekeeping this session controls the timing of stays
+        # visible at session start and on every prompt, but never nags.
+        if not pending.get("blocking"):
+            return 0
         out = {"decision": "block", "reason": _stop_reason(pending)}
     elif event in ("SessionStart", "UserPromptSubmit"):
         out = {

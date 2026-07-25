@@ -143,15 +143,66 @@ def test_author_is_not_told_to_ack_their_own_item(chatting):
     assert rc == 0 and out == ""
 
 
-def test_prune_ok_is_surfaced_after_resolve(tool, chatting):
+def test_prune_ok_is_reported_but_does_not_block(tool, chatting):
+    """Housekeeping shows up in context; it must not hold a turn open."""
     gw, dash, db = chatting
     call(tool, "chat_ack", {"item": "chunk-api"}, gw)
     call(tool, "chat_reply", {"item": "chunk-api", "text": "no, it is open"}, gw)
     call(tool, "chat_resolve", {"item": "chunk-api"}, dash)
     call(tool, "chat_read", {}, gw)                     # clear unread chatter
-    rc, out = run_hook("Stop", gw, db)
+
+    rc, stop_out = run_hook("Stop", gw, db)
+    assert rc == 0 and stop_out == ""                   # no nag
+
+    _rc, start_out = run_hook("SessionStart", gw, db)
+    ctx = json.loads(start_out)["hookSpecificOutput"]["additionalContext"]
+    assert "prune-ok" in ctx                            # still visible
+
+
+def test_parked_item_awaiting_my_resolve_never_blocks(tool, chatting):
+    """The reported bug: an answered item held open on purpose must not nag.
+
+    node-dash raised it, mesh-gw answered, and node-dash is deliberately waiting
+    for mesh-gw to ship before resolving. That is a correct board state.
+    """
+    gw, dash, db = chatting
+    call(tool, "chat_ack", {"item": "chunk-api"}, gw)
+    call(tool, "chat_reply", {"item": "chunk-api", "text": "fix is queued, not shipped"}, gw)
+    call(tool, "chat_read", {}, dash)                   # raiser has read the answer
+
+    for _ in range(3):                                  # would nag every turn before
+        rc, out = run_hook("Stop", dash, db)
+        assert rc == 0 and out == ""
+
+    _rc, start_out = run_hook("SessionStart", dash, db)
+    ctx = json.loads(start_out)["hookSpecificOutput"]["additionalContext"]
+    assert "resolve when you are satisfied" in ctx
+
+
+def test_event_only_unread_does_not_block(tool, chatting):
+    """A peer's ack is news; it must not cost the raiser a turn."""
+    gw, dash, db = chatting
+    call(tool, "chat_read", {}, dash)
+    call(tool, "chat_ack", {"item": "chunk-api"}, gw)   # writes an event row only
+
+    rc, out = run_hook("Stop", dash, db)
+    assert rc == 0 and out == ""
+
+    _rc, start_out = run_hook("SessionStart", dash, db)
+    assert "acked by mesh-gw" in json.loads(start_out)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_real_message_still_blocks(tool, chatting):
+    """The narrowing must not silence an actual question."""
+    gw, dash, db = chatting
+    call(tool, "chat_read", {}, dash)
+    call(tool, "chat_ack", {"item": "chunk-api"}, gw)
+    call(tool, "chat_say", {"text": "what MTU are you assuming?", "channel": "gw--dash"}, gw)
+
+    rc, out = run_hook("Stop", dash, db)
     assert rc == 0
-    assert "prune-ok" in json.loads(out)["reason"]
+    assert json.loads(out)["decision"] == "block"
+    assert "MTU" in json.loads(out)["reason"]
 
 
 def test_unknown_event_prints_plain_text(chatting):

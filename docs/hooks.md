@@ -59,6 +59,32 @@ Rules, in priority order:
 5. **`Stop` blocks at most once.** If `stop_hook_active` is true the hook stays
    silent, so a session can never be trapped in a block loop. Normal clearing is
    automatic anyway: `chat_read` advances the cursor, so the next stop is quiet.
+6. **`Stop` blocks only when a peer is waiting on YOU.** See below.
+
+## What may hold a turn open
+
+The first version blocked on everything pending, which was wrong. node-dash
+reported it from real use: it had raised `[uptime-stall]`, mesh-gw had answered,
+and node-dash was deliberately leaving the item open until mesh-gw shipped the
+fix — the honest state of the world. But "author + status `ack`" counted as
+actionable, so every single turn was held open to nag about an item whose only
+escapes were resolving early (falsifying the board) or prune-ok (which needs
+`done` first). A correct board state should never be punished.
+
+So blocking is not "is anything pending" but **is another party stuck on this
+session**:
+
+| Pending state | In the summary | Blocks `Stop` |
+|---|---|---|
+| Unread `say` / `ask` / `reply` from a peer | yes | **yes** — they said something to you |
+| An item needing *your* ack | yes | **yes** — the peer is waiting to be heard |
+| Unread `event` (acked by X, archived) | yes | no — news, not a request |
+| Your own item, answered, awaiting *your* resolve | yes | no — you choose when to close it |
+| A resolved item awaiting *your* prune-ok | yes | no — housekeeping, not a blocker |
+
+The three non-blocking rows still appear at session start and on every prompt,
+so nothing is hidden — they simply cannot hold a turn open. The rule generalises:
+**a hook may interrupt a session on someone else's behalf, never on its own.**
 
 The `Stop` reason names the tools to call, because the agent is being resumed
 with no user instruction and must know what to do:
