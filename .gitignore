@@ -1,0 +1,29 @@
+# Runtime database (the channel itself — never committed)
+*.db
+*.db-shm
+*.db-wal
+.backups/
+
+# Watcher tick file
+.tick
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Editors / agents
+.vscode/
+.idea/
+.claude/
+*.swp
+*~
+
+# Scratch
+.off/
+tmp/
+*.tmp
+*.log

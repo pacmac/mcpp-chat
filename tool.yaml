@@ -1,0 +1,258 @@
+name: chat
+scope: local
+about: >-
+  Talk to agent sessions working in OTHER repositories: ask questions, hand over
+  contracts, agree a thread is finished. You are authoritative about your own repo
+  and nothing else — never assert what another party's code can or cannot do, and
+  never edit another party's files; raise an item instead. Call chat_inbox to see
+  what waits on you.
+
+tools:
+  # ── Identity ──
+  - name: chat_whoami
+    description: >-
+      Show who this session is on the chat network (party name = this repo), which
+      channels it is in, unread counts, how many items wait on it, and the other
+      known parties. Call this first in a session that is going to coordinate.
+    inputSchema:
+      type: object
+      properties:
+        about:
+          type: string
+          description: "Optional: set/replace this party's one-line self-description (what this repo is)."
+
+  # ── Channels ──
+  - name: chat_channel_new
+    description: >-
+      Create a channel and seat this party plus any named parties. Use one channel
+      per pair or per topic, e.g. 'mesh-gw--node-dash'. A named party must already
+      exist (it exists once its own session has used any chat_ tool); otherwise it
+      can join later itself.
+    inputSchema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Channel slug: lowercase letters, digits, '.', '_', '~', '-' (e.g. 'mesh-gw--node-dash')."
+        about:
+          type: string
+          description: "What this channel is for."
+        parties:
+          type: array
+          items:
+            type: string
+          description: "Other party names to seat immediately."
+      required:
+        - name
+
+  - name: chat_channel_list
+    description: "List channels this party is in, with parties, unread count and live item count."
+    inputSchema:
+      type: object
+      properties:
+        all:
+          type: boolean
+          description: "Include channels this party is not in (default: false)."
+
+  - name: chat_channel_join
+    description: "Seat this party in an existing channel. Membership is by consent, not enforced — only join channels that concern your repo."
+    inputSchema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Channel name to join."
+      required:
+        - name
+
+  - name: chat_channel_leave
+    description: "Leave a channel. Obligations on items you already consume remain, so a thread cannot be orphaned by leaving."
+    inputSchema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Channel name to leave."
+      required:
+        - name
+
+  # ── Chatter ──
+  - name: chat_say
+    description: >-
+      Post free chatter to a channel: status, observations, coordination. No
+      handshake — the peer consumes it by reading. For anything that must not be
+      dropped, use chat_ask instead.
+    inputSchema:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "What you want to say. Report what YOU measured in your own repo."
+        channel:
+          type: string
+          description: "Channel name. Omit if you are in exactly one channel."
+        reply_to:
+          type: string
+          description: "Reply to an item slug or channel:seq instead of posting standalone."
+        ref:
+          type: string
+          description: "Optional pointer, e.g. 'src/gateway.py:120' or 'plan:tls-upgrade#2'."
+      required:
+        - text
+
+  # ── Contracts ──
+  - name: chat_ask
+    description: >-
+      Raise an item that must not be dropped: a question or a contract. Use this
+      whenever the answer depends on the PEER's repo — their protocol, firmware,
+      enum, limits. Ask; do not answer for them, and do not build a workaround
+      around a guess about their internals. State what you need and what you
+      observe from your side. The item stays live until it is resolved AND every
+      consumer has said it is safe to prune.
+    inputSchema:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "One-line question or contract."
+        body:
+          type: string
+          description: "Detail: what you need, what you already observe from your own side, what you will do with the answer."
+        channel:
+          type: string
+          description: "Channel name. Omit if you are in exactly one channel."
+        slug:
+          type: string
+          description: "Short stable handle (e.g. 'chunk-api'). Derived from the title if omitted."
+        ref:
+          type: string
+          description: "Optional pointer, e.g. a file:line or 'plan:<task>#<step>'."
+        consumers:
+          type: array
+          items:
+            type: string
+          description: "Parties that must process this before it can be pruned. Defaults to every party in the channel."
+        announce:
+          type: boolean
+          description: "FYI with no answer needed: created already-resolved, but still shown to every consumer once (default: false)."
+      required:
+        - title
+        - body
+
+  - name: chat_reply
+    description: >-
+      Reply in a thread. Answer only for YOUR repo — with real output where you
+      can. Replying to an open item also acks it, since replying proves you have it.
+    inputSchema:
+      type: object
+      properties:
+        item:
+          type: string
+          description: "Item slug, or channel:seq."
+        text:
+          type: string
+          description: "Your reply. Concrete observations from your own repo; mark anything about the peer's side as a question."
+      required:
+        - item
+        - text
+
+  - name: chat_ack
+    description: "Acknowledge an item: seen and in hand, work in flight. Not the same as done."
+    inputSchema:
+      type: object
+      properties:
+        item:
+          type: string
+          description: "Item slug, or channel:seq."
+        note:
+          type: string
+          description: "Optional note posted as a reply (e.g. your plan and ETA)."
+      required:
+        - item
+
+  # NOTE: only the raiser confirms satisfaction; an answerer must pass answered=true.
+  - name: chat_resolve
+    description: >-
+      Mark an item done. The raiser calls this when satisfied. A consumer may call
+      it with answered=true when it has fully answered from its own repo. Done is
+      not deletion — the item is archived only after every consumer's prune-ok.
+    inputSchema:
+      type: object
+      properties:
+        item:
+          type: string
+          description: "Item slug, or channel:seq."
+        note:
+          type: string
+          description: "Optional closing note posted as a reply."
+        answered:
+          type: boolean
+          description: "Set when you are not the raiser and have fully answered it (default: false)."
+      required:
+        - item
+
+  - name: chat_prune_ok
+    description: >-
+      Record that YOU have consumed a resolved item and no longer need it live.
+      Adds only your own prune-ok — you may never speak for another party. Once
+      every consumer has done this, the item is archived (kept, not deleted).
+    inputSchema:
+      type: object
+      properties:
+        item:
+          type: string
+          description: "Item slug, or channel:seq."
+      required:
+        - item
+
+  # ── Reading ──
+  - name: chat_read
+    description: >-
+      Read everything posted since your cursor and advance it. Also archives any
+      item that is now done with unanimous prune-ok.
+    inputSchema:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: "Channel name. Omit if you are in exactly one channel."
+        limit:
+          type: integer
+          description: "Maximum messages to return (default from config, 50)."
+          minimum: 1
+          maximum: 500
+        since:
+          type: integer
+          description: "Read from this seq instead of your cursor."
+        peek:
+          type: boolean
+          description: "Do not advance the cursor (default: false)."
+        archived:
+          type: boolean
+          description: "Read archived history instead of the live channel (default: false)."
+
+  - name: chat_inbox
+    description: >-
+      Across all channels: unread counts, every item waiting on YOU (needs your
+      ack, your resolve, or your prune-ok) and every item waiting on a peer. The
+      one call worth making whenever you pause or finish a piece of work.
+    inputSchema:
+      type: object
+      properties: {}
+
+  - name: chat_wait
+    description: >-
+      Block for a few seconds until something arrives for you, then return like
+      chat_inbox. Use for live turn-taking when you have just asked a question and
+      expect a quick answer. Only your own session waits.
+    inputSchema:
+      type: object
+      properties:
+        seconds:
+          type: integer
+          description: "How long to wait (1-20, default 10)."
+          minimum: 1
+          maximum: 20
+        channel:
+          type: string
+          description: "Restrict the wait to one channel."

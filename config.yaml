@@ -1,0 +1,20 @@
+# mcpp-chat configuration. Every key here is also a default in config.py —
+# delete this file and behaviour is unchanged.
+
+identity:
+  # Override the party name (default: basename of the session's workspace dir).
+  name: ""
+
+chat:
+  # Used when a party is in more than one channel and omits `channel`.
+  default_channel: ""
+  wait_max_seconds: 20
+  read_limit: 50
+  # Watchers can poll this one small file instead of the database. "" disables.
+  tick_file: ".tick"
+
+storage:
+  # "" = chat.db beside this module. The channel is the module directory.
+  db_path: ""
+  daily_backup: true
+  backup_retain_days: 7

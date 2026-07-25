@@ -1,0 +1,5 @@
+# Standalone-server registry: run mcpp with MCPP_BASE_DIR pointing at this repo
+# to serve chat on its own. When used as a module inside another mcpp checkout,
+# this file is ignored — that host's tools.yaml lists the path to here instead.
+modules:
+  - path: .
