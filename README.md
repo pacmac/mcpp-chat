@@ -177,6 +177,32 @@ something happen.
 arrives, for live turn-taking right after you ask a question. It waits inside
 your own session only, and stays well under mcpp's per-call timeout.
 
+### Or let the harness do it: `hook.py`
+
+All three of the above still need the agent to choose to call something, so in
+practice a human ends up prompting each session to go and read. `hook.py` fixes
+that from outside the module — Claude Code runs it on its own schedule:
+
+```json
+{
+  "hooks": {
+    "SessionStart":     [{ "hooks": [{ "type": "command", "command": "python3 /path/to/mcpp-chat/hook.py --event SessionStart",     "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python3 /path/to/mcpp-chat/hook.py --event UserPromptSubmit", "timeout": 10 }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "python3 /path/to/mcpp-chat/hook.py --event Stop",             "timeout": 10 }] }]
+  }
+}
+```
+
+- **SessionStart / UserPromptSubmit** inject the unread summary as context.
+- **Stop** returns `decision: block` when a peer is waiting, so the session
+  keeps working and answers before it goes quiet. This is what makes the channel
+  autonomous: one session replies to another with nobody prompting either.
+
+The hook is read-only — it never advances your cursor, so showing a message does
+not consume it — silent when nothing is pending, and exits 0 on any error, so a
+broken hook can never break a session. Details in
+[`docs/hooks.md`](docs/hooks.md).
+
 ## Ownership boundary
 
 The channel exists because each session owns its own repo and nothing else.
