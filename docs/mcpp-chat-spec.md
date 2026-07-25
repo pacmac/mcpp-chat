@@ -87,12 +87,13 @@ two separate universes — documented, not defended against.
 ```
 mcpp-chat/
 ├── tool.yaml            # manifest: 14 tools, scope: local
-├── tools.yaml           # modules: [- path: .]  → standalone-server mode
+├── tools.yaml           # modules: [- path: .]  → standalone mode via MCPP_BASE_DIR
 ├── mcpptool.py          # execute() + get_info(); dispatch table; display formatters
 ├── chat.py              # protocol logic: parties, channels, messages, handshake
 ├── db.py                # connect/ensure_schema/migrate, path resolution, tick file
+├── __init__.py          # required: siblings are loaded as submodules of a real package
 ├── schema.sql           # v1 DDL (§6)
-├── schema_patches/      # patch-N.sql, applied in order (empty at v1)
+├── schema_patches/      # patch-N.sql, applied in order (none at v1)
 ├── config.py            # defaults + config.yaml deep-merge (mcpp-plan idiom)
 ├── config.yaml          # shipped defaults
 ├── .gitignore           # *.db, *.db-wal, *.db-shm, .tick, __pycache__, .backups/
@@ -101,10 +102,18 @@ mcpp-chat/
 ├── docs/
 │   └── mcpp-chat-spec.md   # this file
 └── tests/
-    ├── test_db.py       # schema, migration, concurrent writers
+    ├── conftest.py       # isolated-DB fixtures driving the real host bootstrap
+    ├── test_db.py        # schema, path resolution, write locking, tick file
     ├── test_protocol.py  # handshake state machine, prune consensus, cursors
-    └── test_tools.py    # execute() surface, arg validation, display strings
+    └── test_tools.py     # execute() surface, arg validation, display strings
 ```
+
+`__init__.py` and `tests/conftest.py` were not in the original list. The first is
+required by the import pattern that `mcpp-plan/mcpptool.py:223-260` proves works
+under the host: bootstrap a real package in `sys.modules`, then load `config`,
+`db` and `chat` as its submodules, so their relative imports resolve both under
+mcpp and under pytest. The second keeps that bootstrap in one place instead of
+copied into three test files.
 
 Runtime artefacts, all gitignored, all inside the module dir: `chat.db`,
 `chat.db-wal`, `chat.db-shm`, `.tick`, `.backups/`.
@@ -250,9 +259,16 @@ contract.
 Ported from `xsession/SKILL.md:49-64`, unchanged in meaning:
 
 1. **Raise** — `chat_ask` inserts kind `ask`, `status='open'`, and one
-   `item_consumers` row per *other* current channel party.
+   `item_consumers` row per current channel party **including the author**, whose
+   `acked_at` is stamped immediately (they have it in hand by definition). The
+   author must still record their own prune-ok, which is what §13's worked example
+   shows and what xsession does by listing both parties as consumers.
 2. **Ack** — `chat_ack` stamps `acked_at` for the calling party and sets the item
-   to `ack`. Means *seen and in hand*; not finished.
+   to `ack`. Means *seen and in hand*; not finished. A bare ack writes no prose,
+   so it also emits an `event` line — otherwise the raiser has nothing to notice
+   and no tick fires (§9). Replying to an open item acks it too: replying is proof
+   the item is in hand, and leaving it looking unattended would be worse than the
+   small liberty of stamping it.
 3. **Resolve** — `chat_resolve` sets `done`. Allowed only for the **author**
    (the raiser confirms satisfaction) or a consumer that has already acked and
    passes `answered: true`; `chat.py` records which, as an `event`.
@@ -296,7 +312,7 @@ sees it exactly once.
 | `chat_ack` | `item`, `note?` | Seen and in hand. |
 | `chat_resolve` | `item`, `note?`, `answered?` | Mark `done` (§7.2 rule 3). |
 | `chat_prune_ok` | `item` | Add **my** prune-ok. Self only. |
-| `chat_read` | `channel?`, `limit?`, `since?`, `peek?` | Everything after my cursor; advances it unless `peek`. |
+| `chat_read` | `channel?`, `limit?`, `since?`, `peek?`, `archived?` | Everything after my cursor; advances it unless `peek`. `archived: true` reads the archived history instead — the only way back to pruned threads, since v1 has no separate history tool. |
 | `chat_inbox` | — | Cross-channel: unread counts + every item waiting on **me** (needs my ack / my answer / my prune-ok), and what waits on a peer. |
 | `chat_wait` | `seconds?`, `channel?` | Bounded blocking poll (§9). Returns as soon as something for me arrives, or on timeout. |
 
@@ -335,8 +351,11 @@ layers, cheapest first:
 1. **Pull — `chat_inbox`.** One call answers "is anything waiting on me?" across
    all channels. This is the primitive; a companion skill (out of scope here) can
    make an agent call it at natural pauses.
-2. **Tick file — for watchers.** Every write touches `mcpp-chat/.tick` with a
-   one-line payload `<iso8601> <channel> <seq> <author>`. A session can arm a
+2. **Tick file — for watchers.** Every message insert — chatter, items, replies
+   **and events** (ack, resolve, archive, join) — overwrites `mcpp-chat/.tick`
+   with a one-line payload `<iso8601> <channel> <seq> <author>`. Ticking only on
+   prose was the first thing the two-process smoke test caught: a raiser waiting
+   on an ack saw nothing happen. A session can arm a
    `Monitor`/`tail -F` watcher on that single small file — no DB access, no
    polling of SQLite, no markdown diffing (xsession's `--listen` had to diff a
    growing file to avoid false alarms; a tick file makes that trivial). The
@@ -447,8 +466,10 @@ asking cheaper than assuming.
 | **M3 — liveness** | tick file, `chat_wait`, `chat_channel_leave`, display polish, `get_info()` | yes |
 | **M4 — ship** | README, tests, LICENSE, `.gitignore`, first commit + `pacmac/mcpp-chat` remote | — |
 
-Each milestone is a separate mcpp-plan task with its own spec. **This task
-produces only this document.**
+M1-M3 were built in one pass under task `mcpp-chat-build` rather than three
+separate tasks: the milestones sequence the same file set, and a module registered
+for every session on the host is worth having whole. M4 is done except the remote,
+which is not this task's to create. 59 tests plus a two-process smoke test back it.
 
 Deferred, deliberately: channel close/rename, full-text search over history,
 `chat_digest` (summarise a channel), cross-machine federation, and any
