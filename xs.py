@@ -105,16 +105,42 @@ def my_channels(party: str) -> list[str]:
 
 
 def resolve_channel(party: str, channel: str | None) -> str:
+    """The single channel a posting command targets.
+
+    Only for commands that write to one place. Anything that reports on or waits
+    for this party's traffic is inherently cross-channel and must use
+    target_channels() instead — see the note there.
+    """
     chans = my_channels(party)
     if channel:
-        if slugify(channel) not in chans and not channel_dir(channel).is_dir():
-            raise Board(f"no channel {channel!r}; you are in: {', '.join(chans) or 'none'}")
-        return slugify(channel)
+        want = slugify(channel)
+        if want not in chans:
+            # A channel directory existing is not permission to write in it.
+            where = f"you are in: {', '.join(chans)}" if chans else "you are in no channels"
+            raise Board(f"{party} is not seated in {want!r} — {where}")
+        return want
     if not chans:
         raise Board(f"{party} is not seated in any channel — xs init <name> --parties ...")
     if len(chans) > 1:
-        raise Board(f"say which channel: {', '.join(chans)}")
+        raise Board(f"say which channel with -c: {', '.join(chans)}")
     return chans[0]
+
+
+def target_channels(party: str, channel: str | None) -> list[str]:
+    """Every channel a reporting command covers: all of mine, or just the named one.
+
+    node-dash is genuinely seated in two channels, one per peer. An inbox that
+    can only speak about one of them is not an inbox, and the first version of
+    this resolved a single channel before dispatching any command — so every
+    command, including the default inbox, failed for exactly the party the board
+    exists to serve.
+    """
+    if channel:
+        return [resolve_channel(party, channel)]
+    chans = my_channels(party)
+    if not chans:
+        raise Board(f"{party} is not seated in any channel — xs init <name> --parties ...")
+    return chans
 
 
 class Board(Exception):
@@ -329,12 +355,12 @@ def set_status(channel: str, slug: str, status: str) -> None:
 
 # ── Obligations ──
 
-def inbox(party: str) -> dict:
+def inbox(party: str, channel: str | None = None) -> dict:
     """Who owes whom, computed from the directory rather than read out of prose."""
     out: dict = {"me": party, "channels": [], "unread_total": 0,
                  "waiting_on_me": [], "waiting_on_peer": [],
                  "mine_to_close": [], "needs_my_prune_ok": []}
-    for ch in my_channels(party):
+    for ch in ([slugify(channel)] if channel else my_channels(party)):
         new = unread(ch, party)
         out["unread_total"] += len(new)
         out["channels"].append({"channel": ch, "unread": len(new),
@@ -413,9 +439,7 @@ def wait(party: str, timeout: float = 60.0, channel: str | None = None) -> dict:
     session, install a hook, or refuse to let anything stop. A caller loops on
     it because it chooses to.
     """
-    chans = [resolve_channel(party, channel)] if channel else my_channels(party)
-    if not chans:
-        raise Board(f"{party} is not seated in any channel")
+    chans = target_channels(party, channel)
     dirs = [channel_dir(c) / "msg" for c in chans]
 
     def pending() -> int:
@@ -509,7 +533,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"joined `{slugify(a.channel)}`")
             return 0
 
-        ch = resolve_channel(party, a.channel)
+        # Deliberately NOT resolving a single channel here. Only the posting
+        # commands below need one; inbox / read / wait / archive cover every
+        # channel this party is seated in, and forcing a choice on them is what
+        # made the whole tool unusable for a party with two peers.
+        if a.cmd in ("say", "ask", "reply", "ack", "resolve", "prune-ok"):
+            ch = resolve_channel(party, a.channel)
 
         if a.cmd == "say":
             r = post(ch, party, "say", " ".join(a.text))
@@ -562,13 +591,21 @@ def main(argv: list[str] | None = None) -> int:
                   (f" — still waiting on {', '.join(missing)}" if missing else " — unanimous"))
 
         elif a.cmd == "inbox":
-            print(fmt_inbox(inbox(party)))
+            print(fmt_inbox(inbox(party, resolve_channel(party, a.channel) if a.channel else None)))
 
         elif a.cmd == "read":
-            new = unread(ch, party)
-            print(fmt_messages(new))
-            if new and not a.peek:
-                set_seen(ch, party, max(m["seq"] for m in new))
+            printed = False
+            for c in target_channels(party, a.channel):
+                new = unread(c, party)
+                if not new:
+                    continue
+                print(f"== {c}")
+                print(fmt_messages(new))
+                printed = True
+                if not a.peek:
+                    set_seen(c, party, max(m["seq"] for m in new))
+            if not printed:
+                print("nothing new.")
 
         elif a.cmd == "wait":
             r = wait(party, a.timeout, a.channel)
@@ -576,7 +613,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"({r['unread']} unread, {r['waited']}s, via {r['via']})")
 
         elif a.cmd == "archive":
-            moved = archive_sweep(ch)
+            moved = []
+            for c in target_channels(party, a.channel):
+                moved += [f"{c}:{s}" for s in archive_sweep(c)]
             print("archived: " + (", ".join(moved) if moved else "nothing eligible"))
 
     except Board as exc:

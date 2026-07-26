@@ -235,3 +235,72 @@ def test_nothing_here_touches_the_harness(xs):
     src = (REPO / "xs.py").read_text(encoding="utf-8")
     for forbidden in ("stop_hook_active", '"block"', "hookSpecificOutput", "settings.json"):
         assert forbidden not in src, f"{forbidden} must never appear in this module"
+
+
+# ── More than one channel ──
+#
+# node-dash is really seated in two channels, one per peer. Everything below was
+# broken for exactly that party: main() resolved a single channel before
+# dispatching any command, so even the default inbox refused to run.
+
+@pytest.fixture()
+def two_channels(xs):
+    xs.ensure_channel("dash--gw", ["dash", "gw"])
+    xs.ensure_channel("dash--transport", ["dash", "transport"])
+    return "dash--gw", "dash--transport"
+
+
+def test_inbox_covers_every_channel(xs, two_channels, tmp_path):
+    gw_ch, tr_ch = two_channels
+    xs.post(gw_ch, "gw", "say", "from gw")
+    xs.post(tr_ch, "transport", "say", "from transport")
+
+    r = run(["inbox"], tmp_path, "dash")
+    assert r.returncode == 0, f"inbox must not demand a channel: {r.stderr}"
+    assert gw_ch in r.stdout and tr_ch in r.stdout
+    assert xs.inbox("dash")["unread_total"] == 2
+
+
+def test_read_consumes_across_channels(xs, two_channels, tmp_path):
+    gw_ch, tr_ch = two_channels
+    xs.post(gw_ch, "gw", "say", "alpha")
+    xs.post(tr_ch, "transport", "say", "beta")
+
+    r = run(["read"], tmp_path, "dash")
+    assert r.returncode == 0
+    assert "alpha" in r.stdout and "beta" in r.stdout
+    assert xs.unread(gw_ch, "dash") == [] and xs.unread(tr_ch, "dash") == []
+
+
+def test_wait_watches_every_channel(xs, two_channels):
+    _gw_ch, tr_ch = two_channels
+    xs.post(tr_ch, "transport", "say", "only in the second channel")
+    r = xs.wait("dash", timeout=3)
+    assert r["arrived"] is True, "a peer in either channel must wake the wait"
+
+
+def test_archive_sweeps_every_channel(xs, two_channels, tmp_path):
+    gw_ch, tr_ch = two_channels
+    for ch, peer in ((gw_ch, "gw"), (tr_ch, "transport")):
+        xs.create_item(ch, "dash", "q", "Q")
+        xs.set_status(ch, "q", "DONE")
+        xs.touch(xs.item_dir(ch, "q") / "pruneok" / "dash")
+        xs.touch(xs.item_dir(ch, "q") / "pruneok" / peer)
+    r = run(["archive"], tmp_path, "dash")
+    assert f"{gw_ch}:q" in r.stdout and f"{tr_ch}:q" in r.stdout
+
+
+def test_posting_still_demands_a_channel_when_ambiguous(xs, two_channels, tmp_path):
+    r = run(["say", "which one?"], tmp_path, "dash")
+    assert r.returncode == 2 and "-c" in r.stderr, "a post must not guess its destination"
+
+    r = run(["-c", "dash--gw", "say", "this one"], tmp_path, "dash")
+    assert r.returncode == 0
+
+
+def test_cannot_reach_a_channel_i_am_not_seated_in(xs, two_channels, tmp_path):
+    """A channel directory existing is not permission to write in it."""
+    xs.ensure_channel("gw--transport", ["gw", "transport"])
+    r = run(["-c", "gw--transport", "say", "not mine"], tmp_path, "dash")
+    assert r.returncode == 2 and "not seated" in r.stderr
+    assert xs.messages("gw--transport") == []

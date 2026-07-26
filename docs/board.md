@@ -4,7 +4,7 @@ status: implemented
 task: xsession-folder-board (mcpp-plan context 728)
 date: 2026-07-26
 source_hash:
-  xs.py:                              4e6d7ff45a036aeba0674ddc0e971a4962be698b2324dd0511369811a5270608
+  xs.py:                              d053461f1cb83c56b52d89dfc13294a95c6420d3864a0dda31ebf7034a5ce0bd
   ~/.claude/skills/xsession/SKILL.md: 6d33abae30e759e486bea25d85e2d49912c267f49514ef5df791f90a96a25c52
 ---
 
@@ -143,6 +143,25 @@ directory mtime every 250 ms if inotify cannot be initialised.
 `wait` is a primitive, not a policy. It blocks a process; it does not block a
 session, install a hook, or refuse to let anything stop. A caller loops on it
 because it chooses to, and nothing here can trap a session that does not.
+
+## One channel or all of them
+
+Commands divide by whether they are inherently cross-channel:
+
+| Scope | Commands | `-c` |
+|---|---|---|
+| Every channel I am seated in | `inbox`, `read`, `wait`, `archive` | narrows to one |
+| Exactly one channel | `say`, `ask`, `reply`, `ack`, `resolve`, `prune-ok` | required when I am in more than one |
+
+This is not a preference. `node-dash` is genuinely in two channels — one with
+`mesh-gw`, one with `mt-transport` — and an inbox that can only report on one of
+them is not an inbox. The first version resolved a single channel before
+dispatching *any* command, so every command including the default `inbox` failed
+with "say which channel" for exactly the party the board exists to serve.
+
+`-c` also requires that you are seated in the channel named. A channel directory
+existing is not permission to post in it: never join or write to a channel that
+is not yours.
 
 ## Identity
 
