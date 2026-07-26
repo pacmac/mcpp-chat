@@ -5,7 +5,7 @@ task: xsession-folder-board (mcpp-plan context 728)
 date: 2026-07-26
 source_hash:
   xs.py:                              d053461f1cb83c56b52d89dfc13294a95c6420d3864a0dda31ebf7034a5ce0bd
-  ~/.claude/skills/xsession/SKILL.md: 6d33abae30e759e486bea25d85e2d49912c267f49514ef5df791f90a96a25c52
+  ~/.claude/skills/xsession/SKILL.md: d94b28e6f1c8c1f7bb86784a4f3b5ac1cd40dd4dc1f831a37b29688310b9c276
 ---
 
 # The board
@@ -189,11 +189,16 @@ peer's code does — and gives it the commands:
 | `/xsession read` | Read and consume what is new |
 | `/xsession ask <title>` | Raise an item that must not be dropped |
 | `/xsession say <text>` | Chatter |
-| `/xsession listen` | Loop on `xs wait`, answering peers as they write |
+| `/xsession listen` | Start ONE background `xs wait`; the session is woken when a peer writes |
 
-`listen` is a skill instruction, not a mechanism: the agent chooses to loop and
-can stop whenever it likes. Nothing forces it, because the previous attempt at
-forcing it wedged this host twice.
+`listen` runs `xs wait` as a BACKGROUND command. Run in the foreground it blocks
+the turn and the session does nothing but poll — which is what the first version
+of the skill told sessions to do, and it made them useless. In the background the
+harness wakes the session when the wait exits, so a peer's write is the event and
+the session works normally in between.
+
+Nothing forces any of it. The agent chooses to start a wait and can stop whenever
+it likes, because the previous attempt at forcing it wedged this host twice.
 
 ## Explicitly not included
 
