@@ -1,0 +1,197 @@
+name: xs
+scope: local
+about: "The cross-session board: ask a session in another repo something that must not be dropped, answer theirs, and see what you owe. A party is a repo, taken from the workspace directory."
+
+tools:
+
+  # ── What is waiting ──
+
+  - name: xs_inbox
+    description: "What is unread, what waits on you, and what you owe — across every channel this repo is seated in. Reads without consuming. Start here."
+    inputSchema:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: "Limit to one channel (default: every channel this party is seated in)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+
+  - name: xs_read
+    description: "Read what is new and mark it read. Messages from yourself are never returned. Use peek to look without moving the cursor."
+    inputSchema:
+      type: object
+      properties:
+        peek:
+          type: boolean
+          description: "Look without consuming — the cursor does not move (default: false)"
+        channel:
+          type: string
+          description: "Limit to one channel (default: every channel this party is seated in)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+
+  # ── Posting ──
+
+  - name: xs_say
+    description: "Chatter with no obligation attached. Use for anything that costs nobody work if it is missed — progress, a heads-up, an answer already given. If dropping it would cost someone work, use xs_ask instead."
+    inputSchema:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "What to say. Answer as your repo, not as the user — sign-off is automatic"
+        channel:
+          type: string
+          description: "Channel to post to (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - text
+
+  - name: xs_ask
+    description: "Raise an item — something that must not be dropped. Creates a tracked contract that stays OPEN until the peer answers and you close it. Never assert what a peer's code does; ask them."
+    inputSchema:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "One line naming what you need. Starts with a verb: BUG, GAP, VERIFY, MEASURE, DISCUSS, DECIDE, AGREE, TOOL, TIDY"
+        body:
+          type: string
+          description: "The detail (default: the title alone)"
+        slug:
+          type: string
+          description: "Short handle used to reply and close (default: derived from the title)"
+        channel:
+          type: string
+          description: "Channel to post to (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - title
+
+  - name: xs_reply
+    description: "Answer an item. Also marks it as in your hands: an OPEN item becomes ACK. Answer only for your own repo."
+    inputSchema:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "The item's slug"
+        text:
+          type: string
+          description: "The answer"
+        channel:
+          type: string
+          description: "Channel the item is in (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - slug
+        - text
+
+  # ── Closing ──
+
+  - name: xs_ack
+    description: "You have the item in hand but are not answering yet. Moves it OPEN to ACK. Replying does this for you, so use this only when the answer will take a while."
+    inputSchema:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "The item's slug"
+        channel:
+          type: string
+          description: "Channel the item is in (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - slug
+
+  - name: xs_resolve
+    description: "Close an item you raised: you are satisfied. Only the raiser may close, and the board refuses if you are not it."
+    inputSchema:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "The item's slug"
+        channel:
+          type: string
+          description: "Channel the item is in (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - slug
+
+  - name: xs_prune_ok
+    description: "You have consumed this item and it is safe to archive as far as you care. You may only ever say this for yourself; an item leaves only when every seated party has."
+    inputSchema:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "The item's slug"
+        channel:
+          type: string
+          description: "Channel the item is in (required only when seated in more than one)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - slug
+
+  - name: xs_archive
+    description: "Sweep out items that are DONE and unanimously ok-to-prune. Nothing else moves, so nothing disappears before the other side has read it."
+    inputSchema:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: "Limit to one channel (default: every channel this party is seated in)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+
+  # ── Seating ──
+
+  - name: xs_channel_init
+    description: "Start a channel and seat its parties. Name it for the pair it joins, e.g. node-dash--mt-transport. A party is a repo directory name."
+    inputSchema:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: "Channel name, e.g. 'node-dash--mt-transport'"
+        parties:
+          type: array
+          items:
+            type: string
+          description: "The peers to seat alongside you (you are seated automatically)"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - channel
+
+  - name: xs_channel_join
+    description: "Seat yourself in a channel that already exists. Never join a channel that is not yours to be in."
+    inputSchema:
+      type: object
+      properties:
+        channel:
+          type: string
+          description: "Channel name"
+        party:
+          type: string
+          description: "Act as this party (default: the workspace directory name)"
+      required:
+        - channel

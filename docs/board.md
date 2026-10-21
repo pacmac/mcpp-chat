@@ -169,30 +169,46 @@ Party name is `$XSESSION_PARTY`, else the basename of the current directory —
 the same rule as before: a party is a repo, not a person. `--as` overrides for
 tests and for driving two parties from one shell.
 
-## The skill — how it is actually invoked
+**Under mcpp the current directory is the wrong answer.** The server is one
+long-lived process started once, so its cwd is fixed and shared by every call;
+a party read from it would be the same wrong repo for every session on the host.
+`mcpptool.py` therefore takes the party from `context["workspace_dir"]` and never
+calls `me()`. The order there is: the explicit `party` argument, then
+`$XSESSION_PARTY`, then the workspace basename.
 
-`/xsession` was a skill and stays one. That is the front door; everything above
-is the engine behind it.
+## The front doors — how it is actually invoked
+
+There are two, over one engine.
 
 ```
-~/.claude/skills/xsession/SKILL.md     the skill — how an agent uses the board
-/usr/share/pac/dev/py/xsession/xs.py   the CLI it drives, under version control
+tool.yaml + mcpptool.py                       the mcpp module: 11 tools, xs_*
+xs.py                                          the CLI, and the only way to wait
+~/.claude/skills/xsession/SKILL.md             the skill — protocol and boundary
+/usr/share/pac/dev/py/mcpp/tools.yaml          one line loads the module
 ```
 
 The skill teaches the agent the protocol and the ownership boundary — answer for
 your own repo, ask about theirs, never edit their files, never assert what a
-peer's code does — and gives it the commands:
+peer's code does — and gives it the tools:
 
-| Invocation | Meaning |
+| Tool | Meaning |
 |---|---|
-| `/xsession` | Show my inbox: what is unread and what is waiting on me |
-| `/xsession read` | Read and consume what is new |
-| `/xsession ask <title>` | Raise an item that must not be dropped |
-| `/xsession say <text>` | Chatter |
-| `/xsession listen` | Start ONE background `xs wait`; the session is woken when a peer writes |
+| `xs_inbox` | What is unread and what is waiting on me. Consumes nothing |
+| `xs_read` | Read and consume what is new (`peek` to look only) |
+| `xs_ask` | Raise an item that must not be dropped |
+| `xs_say` | Chatter |
+| `xs_reply` / `xs_ack` / `xs_resolve` / `xs_prune_ok` / `xs_archive` | The item protocol |
+| `xs_channel_init` / `xs_channel_join` | Seating |
 
-`listen` runs `xs wait` as a BACKGROUND command. Run in the foreground it blocks
-the turn and the session does nothing but poll — which is what the first version
+### Why `wait` is not among them
+
+mcpp reads one JSON-RPC message at a time and enforces its timeout with `SIGALRM`.
+One process, one loop. A tool that blocks blocks **every** module in that server —
+`plan_*` and `dev_*` included — and a useful listener wants `--timeout 3600`. A cap
+small enough to be safe is a poll loop wearing a tool's name.
+
+So listening stays a BACKGROUND shell call to `xs.py wait`. Run in the foreground it
+blocks the turn and the session does nothing but poll — which is what the first version
 of the skill told sessions to do, and it made them useless. In the background the
 harness wakes the session when the wait exits, so a peer's write is the event and
 the session works normally in between.
@@ -212,5 +228,10 @@ it likes, because the previous attempt at forcing it wedged this host twice.
 ## Files
 
 - `xs.py` — library plus CLI, no third-party imports.
+- `tool.yaml` — the mcpp contract: 11 tools, schemas only, no Python.
+- `mcpptool.py` — `execute()` over the same library functions. Decides the party,
+  dispatches, formats; turns `Board` into `{"success": false, "error": ...}`.
 - `tests/test_xs.py` — includes a real concurrent-writer race that would corrupt
   a single flat file.
+- `tests/test_mcpptool.py` — the tools, including the one that proves the party
+  does not come from the process cwd.

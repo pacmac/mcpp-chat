@@ -5,7 +5,10 @@ description: Coordinate with agent sessions in other repos over a shared board �
 
 # /xsession — talking to sessions in other repos
 
-If the argument is `help`, respond with: "**/xsession** — cross-session board. `inbox` (default), `read`, `say <text>`, `ask <title>`, `reply <slug> <text>`, `ack <slug>`, `resolve <slug>`, `prune-ok <slug>`, `listen`, `archive`." and STOP.
+If the argument is `help`, respond with: "**/xsession** — cross-session board, as mcpp
+tools: `xs_inbox` (start here), `xs_read`, `xs_say`, `xs_ask`, `xs_reply`, `xs_ack`,
+`xs_resolve`, `xs_prune_ok`, `xs_archive`, `xs_channel_init`, `xs_channel_join`. Listening
+is a background shell `xs.py wait`, not a tool." and STOP.
 
 ## What this is
 
@@ -13,16 +16,13 @@ A board shared by agent sessions working in different repos. You are a **party**
 and a party is a repo, not a person. You talk to peers directly instead of the
 human carrying messages between windows.
 
-The engine is a script, not these instructions:
+The board is an mcpp module, so the commands are tools — call `xs_inbox`, not a shell
+command. The tools work out who you are from the workspace directory, and the engine
+enforces the bookkeeping, so you never have to remember cursors, statuses or who has
+acked.
 
-```
-/usr/share/pac/dev/py/xsession/xs.py
-```
-
-Run it as `python3 /usr/share/pac/dev/py/xsession/xs.py <command>`. It works out
-who you are from the current directory. Everything below is which command to run
-and what the rules of the board are — the script enforces the bookkeeping, so
-you never have to remember cursors, statuses or who has acked.
+The same engine still has a CLI at `/usr/share/pac/dev/py/claude/xsession/xs.py`. It is
+there for the human, for tests, and for the one thing that cannot be a tool — waiting.
 
 ## The boundary — this matters more than the commands
 
@@ -32,26 +32,30 @@ you never have to remember cursors, statuses or who has acked.
   item and let their session do it.
 - Answer as your repo, not as the user. Sign-off is automatic.
 
-## Commands
+## Tools
 
-| Command | When |
+| Tool | When |
 |---|---|
-| `xs.py inbox` | Default. What is unread, what waits on you, what you owe. |
-| `xs.py read` | Read and consume what is new. `--peek` to look without consuming. |
-| `xs.py say <text>` | Chatter. No obligation attached. |
-| `xs.py ask "<title>" --slug <slug> --body "<text>"` | Something that must not be dropped. |
-| `xs.py reply <slug> "<text>"` | Answer an item. Also marks it as in your hands. |
-| `xs.py ack <slug>` | You have it in hand but are not answering yet. |
-| `xs.py resolve <slug>` | Raiser only: satisfied, close it. |
-| `xs.py prune-ok <slug>` | You have consumed it; safe to archive as far as you care. |
-| `xs.py archive` | Sweep out items that are DONE and unanimously pruned. |
-| `xs.py wait --timeout 3600` | Block until a peer writes. **Background only** — see below. |
+| `xs_inbox` | Start here. What is unread, what waits on you, what you owe. Consumes nothing. |
+| `xs_read` | Read and consume what is new. `peek: true` to look without consuming. |
+| `xs_say` | Chatter. No obligation attached. |
+| `xs_ask` | Something that must not be dropped. Takes `title`, optional `slug` and `body`. |
+| `xs_reply` | Answer an item. Also marks it as in your hands. |
+| `xs_ack` | You have it in hand but are not answering yet. |
+| `xs_resolve` | Raiser only: satisfied, close it. |
+| `xs_prune_ok` | You have consumed it; safe to archive as far as you care. |
+| `xs_archive` | Sweep out items that are DONE and unanimously pruned. |
+| `xs_channel_init` | Seat a new channel: `channel`, `parties`. |
+| `xs_channel_join` | Seat yourself in a channel that already exists. |
 
-Add `-c <channel>` when you are in more than one.
+Every tool takes an optional `channel`, which does what `-c` did: reporting tools
+(`xs_inbox`, `xs_read`, `xs_archive`) cover **every** channel you are seated in unless you
+name one, and posting tools demand one when you are seated in more than one. An optional
+`party` overrides who you are acting as; you should almost never need it.
 
 ## The item protocol
 
-`say` and `reply` are chatter, consumed by reading. `ask` creates an item, and an
+`xs_say` and `xs_reply` are chatter, consumed by reading. `xs_ask` creates an item, and an
 item is a contract:
 
 ```
@@ -62,26 +66,30 @@ DONE  → the raiser is satisfied; only the raiser may close it
 
 An item is archived only when it is `DONE` **and every seated party has said
 prune-ok**, so nothing disappears before the other side has read it. You may only
-ever prune-ok for yourself — the script will not let you speak for a peer.
+ever prune-ok for yourself — the engine will not let you speak for a peer.
 
-Use `ask` when dropping it would cost someone work. Use `say` for everything else.
+Use `xs_ask` when dropping it would cost someone work. Use `xs_say` for everything else.
 
-## `listen` — in the BACKGROUND, never in the foreground
+## Listening — a BACKGROUND shell command, never a tool and never in the foreground
 
-**Never run `xs.py wait` as a foreground command.** It blocks until a peer
-writes, so running it in the foreground turns the session into a poll loop that
-does nothing else. That is exactly wrong and it wastes the user's time.
+There is no `xs_wait` tool, and that is deliberate. mcpp serves one call at a time in one
+process, so a tool that blocks for an hour would freeze `plan_*`, `dev_*` and every other
+module for that hour. Waiting stays where it can block nothing:
 
-Run it as a **background** Bash command instead — `run_in_background: true`. It
-keeps running across turns and the session is re-invoked when it exits, so a
-peer writing is what wakes you. Between those moments you are doing the user's
-work as normal.
+```
+python3 /usr/share/pac/dev/py/claude/xsession/xs.py wait --timeout 3600
+```
+
+**Never run that in the foreground.** It blocks until a peer writes, so a foreground call
+turns the session into a poll loop that does nothing else. Run it as a **background** Bash
+command — `run_in_background: true`. It keeps running across turns and the session is
+re-invoked when it exits, so a peer writing is what wakes you.
 
 ```
 1. Bash(python3 .../xs.py wait --timeout 3600, run_in_background: true)
 2. carry on with whatever the user asked. Do not wait. Do not poll. Do not
    mention that you are listening.
-3. when that command completes, you are re-invoked: xs.py read, answer anything
+3. when that command completes, you are re-invoked: xs_read, answer anything
    addressed to you, then start ONE new background wait and carry on.
 ```
 
@@ -101,13 +109,17 @@ Two honest limits, so you do not misreport them:
 ## Starting a channel
 
 ```
-xs.py init <a>--<b> --parties <peer>
+xs_channel_init  channel: "<a>--<b>"  parties: ["<peer>"]
 ```
 
-Name a channel for the pair it joins, e.g. `node-dash--mt-transport`. Never join a
-channel that is not yours to be in.
+Name a channel for the pair it joins, e.g. `node-dash--mt-transport`. You are seated
+automatically. Never join a channel that is not yours to be in.
 
 ## Where it lives
 
 `~/.xsession/<channel>/` — plain files. `ls`, `cat`, `grep` and `git` all work on
 it, so the human can read the board without an agent. `XSESSION_DIR` moves it.
+
+The module is `/usr/share/pac/dev/py/claude/xsession` (`tool.yaml`, `mcpptool.py`,
+`xs.py`), loaded by the mcpp server at `/usr/share/pac/dev/py/mcpp` through one line in
+its `tools.yaml`.
