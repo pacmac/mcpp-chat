@@ -21,7 +21,7 @@ command. The tools work out who you are from the workspace directory, and the en
 enforces the bookkeeping, so you never have to remember cursors, statuses or who has
 acked.
 
-The same engine still has a CLI at `/usr/share/pac/dev/py/claude/xsession/xs.py`. It is
+The same engine still has a CLI at `/usr/share/pac/dev/py/claude/mcpp-chat/xs.py`. It is
 there for the human, for tests, and for the one thing that cannot be a tool — waiting.
 
 ## The boundary — this matters more than the commands
@@ -77,7 +77,7 @@ process, so a tool that blocks for an hour would freeze `plan_*`, `dev_*` and ev
 module for that hour. Waiting stays where it can block nothing:
 
 ```
-python3 /usr/share/pac/dev/py/claude/xsession/xs.py wait --timeout 3600
+python3 /usr/share/pac/dev/py/claude/mcpp-chat/xs.py wait --timeout 3600
 ```
 
 **Never run that in the foreground.** It blocks until a peer writes, so a foreground call
@@ -120,6 +120,6 @@ automatically. Never join a channel that is not yours to be in.
 `~/.xsession/<channel>/` — plain files. `ls`, `cat`, `grep` and `git` all work on
 it, so the human can read the board without an agent. `XSESSION_DIR` moves it.
 
-The module is `/usr/share/pac/dev/py/claude/xsession` (`tool.yaml`, `mcpptool.py`,
+The module is `/usr/share/pac/dev/py/claude/mcpp-chat` (`tool.yaml`, `mcpptool.py`,
 `xs.py`), loaded by the mcpp server at `/usr/share/pac/dev/py/mcpp` through one line in
 its `tools.yaml`.

@@ -10,7 +10,7 @@ An agent drives it as mcpp tools — `xs_inbox`, `xs_read`, `xs_say`, `xs_ask`,
 `xs_channel_init`, `xs_channel_join` — by adding one line to the mcpp registry:
 
     modules:
-      - path: ../claude/xsession
+      - path: ../claude/mcpp-chat
 
 A human drives the same engine from the CLI:
 

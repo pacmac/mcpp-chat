@@ -12,7 +12,7 @@ board with a tool call instead of a shell command it has to remember the path to
 | `tool.yaml` | new — the contract, 11 tools |
 | `mcpptool.py` | new — `execute()`, dispatch, display formatting |
 | `tests/test_mcpptool.py` | new — one test per tool, against a temp `XSESSION_DIR` |
-| `../../mcpp/tools.yaml` | one line: `- path: ../claude/xsession` |
+| `../../mcpp/tools.yaml` | one line: `- path: ../claude/mcpp-chat` (renamed from `claude/xsession` 2026-10-21, see `docs/rename-to-mcpp-chat.md`) |
 | `~/.claude/skills/xsession/SKILL.md` | rewritten around the tools; keeps the background-`wait` rule |
 | `~/.claude/CLAUDE.md`, `~/.claude/hooks/xsession-listen.py`, `~/.claude/skills/{xlead,handover}/SKILL.md` | the old absolute path, corrected |
 
@@ -65,7 +65,7 @@ and the listener the skill actually needs wants `--timeout 3600`.
 So listening stays what it already is: a background Bash call to
 
 ```
-python3 /usr/share/pac/dev/py/claude/xsession/xs.py wait --timeout 3600
+python3 /usr/share/pac/dev/py/claude/mcpp-chat/xs.py wait --timeout 3600
 ```
 
 started with `run_in_background: true`. Exposing a capped `xs_wait` was considered and
